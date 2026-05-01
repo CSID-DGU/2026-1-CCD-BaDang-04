@@ -26,7 +26,7 @@ function isErrorResponse(
 }
 
 export default function ReviewImportForm() {
-  const [url, setUrl] = useState("https://place.map.kakao.com/12674579#review");
+  const [url, setUrl] = useState("");
   const [place, setPlace] = useState<ScrapedPlaceInfo | null>(null);
   const [reviews, setReviews] = useState<ScrapedReview[]>([]);
   const [errorMessage, setErrorMessage] = useState("");

@@ -196,12 +196,56 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
   });
   await page.waitForTimeout(1200);
 
-  for (let index = 0; index < 8; index += 1) {
+  let previousMenuCount = 0;
+
+  for (let index = 0; index < 20; index += 1) {
     await scrollScrollableAreas(page);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(350);
+
+    const currentMenuCount = await page.evaluate(() => {
+      return document.querySelectorAll(".section_product .info_goods").length;
+    });
+
+    if (currentMenuCount > 0 && currentMenuCount === previousMenuCount) {
+      break;
+    }
+
+    previousMenuCount = currentMenuCount;
   }
 
+  const expandSelectors = [
+    'button:has-text("배달 더보기")',
+    'a:has-text("배달 더보기")',
+    'button:has-text("메뉴 더보기")',
+    'a:has-text("메뉴 더보기")',
+    '[role="button"]:has-text("더보기")',
+  ];
+
+  for (const selector of expandSelectors) {
+    const expandButtons = page.locator(selector);
+    const count = await expandButtons.count();
+
+    for (let index = 0; index < count; index += 1) {
+      await expandButtons
+        .nth(index)
+        .click({ timeout: 1500 })
+        .catch(() => undefined);
+      await page.waitForTimeout(150);
+    }
+  }
+
+  await page.waitForTimeout(500);
+
   return page.evaluate(() => {
+    function cleanMenuNameInBrowser(text: string) {
+      return text
+        .replace(/메뉴 더보기|공유|주문|대표|추천|AI 추천/g, "")
+        .replace(/\s*배달\s*/g, " ")
+        .replace(/\s*(배달|포장)\s*$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     const selectors = [
       '.section_product .info_goods',
       '.wrap_goods .info_goods',
@@ -229,10 +273,7 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
 
         const priceMatch = text.match(pricePattern);
         const price = priceMatch ? `${priceMatch[1]}${priceMatch[2]}` : null;
-        const name = text
-          .replace(pricePattern, "")
-          .replace(/메뉴 더보기|공유|주문|대표|추천|AI 추천/g, "")
-          .trim();
+        const name = cleanMenuNameInBrowser(text.replace(pricePattern, ""));
 
         if (
           !name ||
@@ -251,7 +292,7 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
       });
     });
 
-    return results.slice(0, 20);
+    return results.slice(0, 120);
   });
 }
 
