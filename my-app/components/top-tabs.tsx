@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { classNames } from "@/lib/ui";
 
 const tabs = [
   { href: "/analysis", label: "가게 분석" },
@@ -21,11 +22,12 @@ export default function TopTabs() {
           <Link
             key={tab.href}
             href={tab.href}
-            className={`flex h-12 items-center justify-center rounded-2xl text-sm font-medium transition ${
+            className={classNames(
+              "flex h-12 items-center justify-center rounded-2xl text-sm font-medium transition",
               isActive
                 ? "bg-[#759AFC] text-white shadow-[0_10px_24px_rgba(117,154,252,0.28)]"
-                : "text-[#494954] hover:bg-white/70"
-            }`}
+                : "text-[#494954] hover:bg-white/70",
+            )}
           >
             {tab.label}
           </Link>

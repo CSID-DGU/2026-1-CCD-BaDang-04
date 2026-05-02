@@ -1,11 +1,13 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import type {
-  ScrapedMenu,
-  ScrapedPlaceInfo,
-  ScrapedReview,
-} from "@/lib/review-scraper";
+import { useRouter } from "next/navigation";
+import type { ScrapedPlaceInfo, ScrapedReview } from "@/lib/review-scraper";
+import {
+  mutedPanelClassName,
+  primaryButtonClassName,
+  surfaceClassName,
+} from "@/lib/ui";
 
 type ScrapeResponse = {
   source: string;
@@ -25,10 +27,19 @@ function isErrorResponse(
   return !("reviews" in data);
 }
 
-export default function ReviewImportForm() {
+type ReviewImportFormProps = {
+  initialPlace?: ScrapedPlaceInfo | null;
+  initialReviews?: ScrapedReview[];
+};
+
+export default function ReviewImportForm({
+  initialPlace = null,
+  initialReviews = [],
+}: ReviewImportFormProps) {
+  const router = useRouter();
   const [url, setUrl] = useState("");
-  const [place, setPlace] = useState<ScrapedPlaceInfo | null>(null);
-  const [reviews, setReviews] = useState<ScrapedReview[]>([]);
+  const [place, setPlace] = useState<ScrapedPlaceInfo | null>(initialPlace);
+  const [reviews, setReviews] = useState<ScrapedReview[]>(initialReviews);
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -81,6 +92,10 @@ export default function ReviewImportForm() {
           : data.note ??
             `메뉴 ${data.place.menus.length}개, 리뷰 ${data.reviews.length}개를 가져왔습니다.`,
       );
+
+      if (data.storage) {
+        router.refresh();
+      }
     } catch {
       resetResultsWithError("정보 수집 요청을 보내지 못했습니다.");
     } finally {
@@ -90,7 +105,7 @@ export default function ReviewImportForm() {
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-[28px] border border-white/70 bg-white/80 px-8 py-8 shadow-[0_18px_48px_rgba(53,38,23,0.08)] backdrop-blur">
+      <section className={`${surfaceClassName} px-8 py-8`}>
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold tracking-tight">
             가게 정보 가져오기
@@ -127,14 +142,14 @@ export default function ReviewImportForm() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex h-12 items-center justify-center rounded-2xl bg-[#759AFC] px-5 text-sm font-medium text-white transition hover:bg-[#5f86ef] disabled:cursor-not-allowed disabled:opacity-70"
+            className={`${primaryButtonClassName} h-12 px-5 disabled:cursor-not-allowed disabled:opacity-70`}
           >
             {isSubmitting ? "정보 수집 중..." : "정보 가져오기"}
           </button>
         </form>
       </section>
 
-      <section className="rounded-[28px] border border-white/70 bg-white/80 px-8 py-8 shadow-[0_18px_48px_rgba(53,38,23,0.08)] backdrop-blur">
+      <section className={`${surfaceClassName} px-8 py-8`}>
         <div className="space-y-2">
           <h2 className="text-2xl font-semibold tracking-tight">가게 정보</h2>
           <p className="text-sm leading-6 text-[#494954]/70">
@@ -143,19 +158,21 @@ export default function ReviewImportForm() {
         </div>
 
         {!place ? (
-          <div className="mt-6 rounded-2xl bg-[#f7f3ee] px-5 py-6 text-sm leading-6 text-[#494954]/70">
+          <div
+            className={`${mutedPanelClassName} mt-6 px-5 py-6 text-sm leading-6 text-[#494954]/70`}
+          >
             아직 가져온 가게 정보가 없습니다.
           </div>
         ) : (
           <div className="mt-6 grid gap-6">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl bg-[#f7f3ee] px-5 py-4">
+              <div className={`${mutedPanelClassName} px-5 py-4`}>
                 <div className="text-sm text-[#494954]/60">가게명</div>
                 <div className="mt-2 text-base font-medium text-[#494954]">
                   {place.placeName ?? "없음"}
                 </div>
               </div>
-              <div className="rounded-2xl bg-[#f7f3ee] px-5 py-4">
+              <div className={`${mutedPanelClassName} px-5 py-4`}>
                 <div className="text-sm text-[#494954]/60">평점</div>
                 <div className="mt-2 text-base font-medium text-[#494954]">
                   {place.averageRating ?? "없음"}
@@ -172,15 +189,17 @@ export default function ReviewImportForm() {
               </div>
 
               {!place.menus.length ? (
-                <div className="mt-4 rounded-2xl bg-[#f7f3ee] px-5 py-6 text-sm leading-6 text-[#494954]/70">
+                <div
+                  className={`${mutedPanelClassName} mt-4 px-5 py-6 text-sm leading-6 text-[#494954]/70`}
+                >
                   추출된 메뉴가 없습니다.
                 </div>
               ) : (
                 <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {place.menus.map((menu: ScrapedMenu, index) => (
+                  {place.menus.map((menu, index) => (
                     <li
                       key={`${index}-${menu.name}`}
-                      className="flex items-center justify-between rounded-2xl bg-[#f7f3ee] px-5 py-4 text-sm text-[#494954]"
+                      className={`${mutedPanelClassName} flex items-center justify-between px-5 py-4 text-sm text-[#494954]`}
                     >
                       <span className="font-medium">{menu.name}</span>
                       <span className="text-[#494954]/70">
@@ -195,12 +214,12 @@ export default function ReviewImportForm() {
         )}
       </section>
 
-      <section className="rounded-[28px] border border-white/70 bg-white/80 px-8 py-8 shadow-[0_18px_48px_rgba(53,38,23,0.08)] backdrop-blur">
+      <section className={`${surfaceClassName} px-8 py-8`}>
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold tracking-tight">추출 결과</h2>
             <p className="text-sm leading-6 text-[#494954]/70">
-              가져온 리뷰는 아직 저장하지 않고 화면에만 표시합니다.
+              가져온 리뷰는 저장된 뒤 화면에 표시됩니다.
             </p>
           </div>
           <span className="rounded-full bg-[#f4efe8] px-4 py-2 text-sm font-medium text-[#494954]">
@@ -209,7 +228,9 @@ export default function ReviewImportForm() {
         </div>
 
         {!reviews.length ? (
-          <div className="mt-6 rounded-2xl bg-[#f7f3ee] px-5 py-6 text-sm leading-6 text-[#494954]/70">
+          <div
+            className={`${mutedPanelClassName} mt-6 px-5 py-6 text-sm leading-6 text-[#494954]/70`}
+          >
             아직 추출된 리뷰가 없습니다.
           </div>
         ) : (
@@ -217,7 +238,7 @@ export default function ReviewImportForm() {
             {reviews.map((review, index) => (
               <li
                 key={`${index}-${review.author ?? "review"}-${review.date ?? "unknown"}`}
-                className="rounded-2xl bg-[#f7f3ee] px-5 py-4"
+                className={`${mutedPanelClassName} px-5 py-4`}
               >
                 <div className="flex flex-wrap items-center gap-3 text-sm text-[#494954]/70">
                   <span className="font-medium text-[#494954]">

@@ -42,17 +42,40 @@ function stripTrailingUiText(text: string) {
   return text.replace(/\s*(더보기|접기)\s*$/g, "").trim();
 }
 
-function isTagOnlyContent(text: string) {
-  const normalized = normalizeWhitespace(text).replace(/\+\d+/g, "").trim();
+function stripReviewMetaText(text: string) {
+  return normalizeWhitespace(text)
+    .replace(/\+\d+/g, " ")
+    .replace(
+      /\b(맛|가성비|분위기|친절|양|서비스|청결|인테리어|주차|재방문|특별한 메뉴)\b/g,
+      " ",
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isDisplayableReviewContent(text: string) {
+  const normalized = stripReviewMetaText(text);
 
   if (!normalized) {
-    return true;
+    return false;
   }
 
   const tokens = normalized.split(" ").filter(Boolean);
   const allowedTags = new Set(["맛", "가성비", "분위기", "친절"]);
 
-  return tokens.every((token) => allowedTags.has(token));
+  if (!tokens.length) {
+    return false;
+  }
+
+  if (tokens.every((token) => allowedTags.has(token))) {
+    return false;
+  }
+
+  if (normalized.length < 3) {
+    return false;
+  }
+
+  return true;
 }
 
 function parseRating(text: string) {
@@ -397,7 +420,7 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
       const date = parseDate(card);
       const content = extractContent(card);
 
-      if (!content || content.length < 2 || isTagOnlyContent(content)) {
+      if (!content || content.length < 2 || !isDisplayableReviewContent(content)) {
         return null;
       }
 

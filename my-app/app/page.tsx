@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { classNames, primaryButtonClassName } from "@/lib/ui";
 
 export default function Home() {
   const router = useRouter();
@@ -72,7 +73,7 @@ export default function Home() {
             width={148}
             height={48}
             priority
-            className="h-12 w-auto"
+            style={{ width: "auto", height: "48px" }}
           />
         </div>
 
@@ -84,11 +85,12 @@ export default function Home() {
               setErrorMessage("");
               setSuccessMessage("");
             }}
-            className={`h-11 rounded-2xl text-sm font-medium transition ${
+            className={classNames(
+              "h-11 rounded-2xl text-sm font-medium transition",
               mode === "sign-in"
                 ? "bg-[#759AFC] text-white"
-                : "text-[#494954] hover:bg-black/5"
-            }`}
+                : "text-[#494954] hover:bg-black/5",
+            )}
           >
             로그인
           </button>
@@ -99,11 +101,12 @@ export default function Home() {
               setErrorMessage("");
               setSuccessMessage("");
             }}
-            className={`h-11 rounded-2xl text-sm font-medium transition ${
+            className={classNames(
+              "h-11 rounded-2xl text-sm font-medium transition",
               mode === "sign-up"
                 ? "bg-[#759AFC] text-white"
-                : "text-[#494954] hover:bg-black/5"
-            }`}
+                : "text-[#494954] hover:bg-black/5",
+            )}
           >
             회원가입
           </button>
@@ -160,7 +163,7 @@ export default function Home() {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex h-12 w-full items-center justify-center rounded-2xl bg-[#759AFC] text-sm font-medium text-white transition hover:bg-[#5f86ef] disabled:cursor-not-allowed disabled:opacity-70"
+            className={`${primaryButtonClassName} h-12 w-full disabled:cursor-not-allowed disabled:opacity-70`}
           >
             {isSubmitting
               ? mode === "sign-in"

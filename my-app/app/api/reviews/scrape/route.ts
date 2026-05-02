@@ -42,20 +42,52 @@ export async function POST(request: Request) {
 
     const result = await scrapeReviewsFromPlace(body.url);
 
+    const { data: existingStores, error: existingStoresError } = await supabase
+      .from("stores")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (existingStoresError) {
+      throw new Error(existingStoresError.message);
+    }
+
+    const existingStoreIds = (existingStores ?? []).map((store) => store.id);
+
+    if (existingStoreIds.length) {
+      const [deleteMenusResult, deleteReviewsResult] = await Promise.all([
+        supabase.from("menus").delete().in("store_id", existingStoreIds),
+        supabase.from("reviews").delete().in("store_id", existingStoreIds),
+      ]);
+
+      if (deleteMenusResult.error) {
+        throw new Error(deleteMenusResult.error.message);
+      }
+
+      if (deleteReviewsResult.error) {
+        throw new Error(deleteReviewsResult.error.message);
+      }
+
+      const { error: deleteStoresError } = await supabase
+        .from("stores")
+        .delete()
+        .eq("user_id", user.id);
+
+      if (deleteStoresError) {
+        throw new Error(deleteStoresError.message);
+      }
+    }
+
     const { data: store, error: storeError } = await supabase
       .from("stores")
-      .upsert(
-        {
-          user_id: user.id,
-          source_url: result.source,
-          source_platform: "kakao_place",
-          place_name: result.place.placeName,
-          average_rating: result.place.averageRating,
-          last_scraped_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,source_url" },
-      )
+      .insert({
+        user_id: user.id,
+        source_url: result.source,
+        source_platform: "kakao_place",
+        place_name: result.place.placeName,
+        average_rating: result.place.averageRating,
+        last_scraped_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
       .select("id")
       .single();
 
@@ -64,19 +96,6 @@ export async function POST(request: Request) {
     }
 
     const storeId = store.id;
-
-    const [deleteMenusResult, deleteReviewsResult] = await Promise.all([
-      supabase.from("menus").delete().eq("store_id", storeId),
-      supabase.from("reviews").delete().eq("store_id", storeId),
-    ]);
-
-    if (deleteMenusResult.error) {
-      throw new Error(deleteMenusResult.error.message);
-    }
-
-    if (deleteReviewsResult.error) {
-      throw new Error(deleteReviewsResult.error.message);
-    }
 
     if (result.place.menus.length) {
       const { error: menusError } = await supabase.from("menus").insert(
