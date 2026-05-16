@@ -18,6 +18,7 @@ type ScrapeResponse = {
     storeId: string;
     savedMenus: number;
     savedReviews: number;
+    savedChunks?: number;
   };
 };
 
@@ -88,7 +89,7 @@ export default function ReviewImportForm({
       setReviews(data.reviews);
       setNotice(
         data.storage
-          ? `저장 완료: 메뉴 ${data.storage.savedMenus}개, 리뷰 ${data.storage.savedReviews}개`
+          ? `저장 완료: 메뉴 ${data.storage.savedMenus}개, 리뷰 ${data.storage.savedReviews}개, 벡터 ${data.storage.savedChunks ?? 0}개`
           : data.note ??
             `메뉴 ${data.place.menus.length}개, 리뷰 ${data.reviews.length}개를 가져왔습니다.`,
       );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { formatShortDate } from "@/lib/date-format";
 import {
   classNames,
@@ -36,6 +36,29 @@ type IssueInsight = {
   count: number;
   recommendation: string;
 };
+
+type AiSummaryItem = {
+  title: string;
+  detail: string;
+};
+
+type AiIssueItem = {
+  title: string;
+  problem: string;
+  recommendation: string;
+};
+
+type AiDashboardInsights = {
+  strengths: AiSummaryItem[];
+  weaknesses: AiSummaryItem[];
+  issues: AiIssueItem[];
+};
+
+function isAiErrorPayload(
+  payload: AiDashboardInsights | { error?: string },
+): payload is { error?: string } {
+  return "error" in payload;
+}
 
 const periodOptions = [
   { key: "7d", label: "최근 7일", days: 7 },
@@ -340,6 +363,68 @@ export default function AnalysisDashboard({
     };
   }, [filteredReviews, selectedStore]);
 
+  const [aiInsights, setAiInsights] = useState<AiDashboardInsights | null>(null);
+  const [aiError, setAiError] = useState("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedStore || !filteredReviews.length) {
+      return;
+    }
+
+    let aborted = false;
+
+    async function loadInsights() {
+      try {
+        setIsAiLoading(true);
+        setAiError("");
+
+        const response = await fetch("/api/analysis/dashboard", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ periodKey: selectedPeriod }),
+        });
+
+        const payload = (await response.json()) as
+          | AiDashboardInsights
+          | { error?: string };
+
+        if (!response.ok || isAiErrorPayload(payload)) {
+          throw new Error(
+            isAiErrorPayload(payload)
+              ? payload.error ?? "AI 분석에 실패했습니다."
+              : "AI 분석에 실패했습니다.",
+          );
+        }
+
+        if (!aborted) {
+          setAiInsights(payload);
+        }
+      } catch (error) {
+        if (!aborted) {
+          setAiInsights(null);
+          setAiError(
+            error instanceof Error
+              ? error.message
+              : "AI 분석에 실패했습니다.",
+          );
+        }
+      } finally {
+        if (!aborted) {
+          setIsAiLoading(false);
+        }
+      }
+    }
+
+    void loadInsights();
+
+    return () => {
+      aborted = true;
+    };
+  }, [filteredReviews.length, selectedPeriod, selectedStore]);
+
   if (!stores.length) {
     return (
       <section className={`${dashboardSurfaceClassName} px-8 py-12`}>
@@ -415,7 +500,27 @@ export default function AnalysisDashboard({
                 </span>
               </div>
               <ul className="mt-5 grid gap-3">
-                {stats.strengths.length ? (
+                {isAiLoading ? (
+                  <li
+                    className={`${mutedPanelClassName} px-5 py-4 text-sm text-[#494954]/70`}
+                  >
+                    AI가 장점 요약을 생성하고 있습니다.
+                  </li>
+                ) : aiInsights?.strengths.length ? (
+                  aiInsights.strengths.map((item) => (
+                    <li
+                      key={`${item.title}-${item.detail}`}
+                      className={`${mutedPanelClassName} px-5 py-4`}
+                    >
+                      <p className="text-sm font-medium leading-6 text-[#494954]">
+                        {item.title}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[#494954]/72">
+                        {item.detail}
+                      </p>
+                    </li>
+                  ))
+                ) : stats.strengths.length ? (
                   stats.strengths.map((item) => (
                     <li
                       key={`${item.title}-${item.supportingText}`}
@@ -447,7 +552,27 @@ export default function AnalysisDashboard({
                 </span>
               </div>
               <ul className="mt-5 grid gap-3">
-                {stats.weaknesses.length ? (
+                {isAiLoading ? (
+                  <li
+                    className={`${mutedPanelClassName} px-5 py-4 text-sm text-[#494954]/70`}
+                  >
+                    AI가 단점 요약을 생성하고 있습니다.
+                  </li>
+                ) : aiInsights?.weaknesses.length ? (
+                  aiInsights.weaknesses.map((item) => (
+                    <li
+                      key={`${item.title}-${item.detail}`}
+                      className={`${mutedPanelClassName} px-5 py-4`}
+                    >
+                      <p className="text-sm font-medium leading-6 text-[#494954]">
+                        {item.title}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-[#494954]/72">
+                        {item.detail}
+                      </p>
+                    </li>
+                  ))
+                ) : stats.weaknesses.length ? (
                   stats.weaknesses.map((item) => (
                     <li
                       key={`${item.title}-${item.supportingText}`}
@@ -546,6 +671,11 @@ export default function AnalysisDashboard({
                   </p>
                 )}
               </div>
+              {aiError ? (
+                <p className="mt-4 text-xs leading-5 text-[#494954]/58">
+                  AI 요약을 불러오지 못해 규칙 기반 분석으로 표시 중입니다.
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -558,7 +688,32 @@ export default function AnalysisDashboard({
             </div>
 
             <div className="mt-5 grid gap-4 lg:grid-cols-3">
-              {stats.issues.length ? (
+              {isAiLoading ? (
+                <div
+                  className={`${mutedPanelClassName} px-5 py-5 text-sm leading-6 text-[#494954]/70 lg:col-span-3`}
+                >
+                  AI가 문제점과 해결 방향을 정리하고 있습니다.
+                </div>
+              ) : aiInsights?.issues.length ? (
+                aiInsights.issues.map((issue) => (
+                  <article
+                    key={`${issue.title}-${issue.problem}`}
+                    className={`${mutedPanelClassName} px-5 py-5`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-base font-semibold text-[#494954]">
+                        {issue.title}
+                      </h3>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-[#494954]/72">
+                      {issue.problem}
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-[#494954]">
+                      {issue.recommendation}
+                    </p>
+                  </article>
+                ))
+              ) : stats.issues.length ? (
                 stats.issues.map((issue) => (
                   <article
                     key={issue.title}

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createKnowledgeChunkRows } from "@/lib/embeddings";
 import { createClient } from "@/lib/supabase/server";
 import { scrapeReviewsFromPlace } from "@/lib/review-scraper";
 
@@ -97,34 +98,146 @@ export async function POST(request: Request) {
 
     const storeId = store.id;
 
+    const storeChunks = await createKnowledgeChunkRows([
+      {
+        userId: user.id,
+        storeId,
+        sourceKind: "store",
+        sourceRecordId: storeId,
+        content: [
+          result.place.placeName ? `가게명: ${result.place.placeName}` : null,
+          result.place.averageRating !== null
+            ? `평점: ${result.place.averageRating}`
+            : null,
+          result.place.menus.length
+            ? `대표 메뉴: ${result.place.menus
+                .slice(0, 10)
+                .map((menu) => `${menu.name}${menu.price ? ` ${menu.price}` : ""}`)
+                .join(", ")}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        metadata: {
+          sourceUrl: result.source,
+          placeName: result.place.placeName,
+          averageRating: result.place.averageRating,
+        },
+      },
+    ]);
+
+    let menuRows:
+      | Array<{
+          id: string;
+          name: string;
+          price_text: string;
+        }>
+      | null = null;
     if (result.place.menus.length) {
-      const { error: menusError } = await supabase.from("menus").insert(
-        result.place.menus.map((menu, index) => ({
-          store_id: storeId,
-          name: menu.name,
-          price_text: menu.price ?? "",
-          display_order: index,
-        })),
-      );
+      const { data, error: menusError } = await supabase
+        .from("menus")
+        .insert(
+          result.place.menus.map((menu, index) => ({
+            store_id: storeId,
+            name: menu.name,
+            price_text: menu.price ?? "",
+            display_order: index,
+          })),
+        )
+        .select("id, name, price_text");
 
       if (menusError) {
         throw new Error(menusError.message);
       }
+
+      menuRows = data;
     }
 
+    let reviewRows:
+      | Array<{
+          id: string;
+          author: string;
+          rating: number | null;
+          review_date: string | null;
+          content: string;
+        }>
+      | null = null;
     if (result.reviews.length) {
-      const { error: reviewsError } = await supabase.from("reviews").insert(
-        result.reviews.map((review) => ({
-          store_id: storeId,
-          author: review.author ?? "",
-          rating: review.rating,
-          review_date: toIsoDate(review.date),
-          content: review.content,
-        })),
-      );
+      const { data, error: reviewsError } = await supabase
+        .from("reviews")
+        .insert(
+          result.reviews.map((review) => ({
+            store_id: storeId,
+            author: review.author ?? "",
+            rating: review.rating,
+            review_date: toIsoDate(review.date),
+            content: review.content,
+          })),
+        )
+        .select("id, author, rating, review_date, content");
 
       if (reviewsError) {
         throw new Error(reviewsError.message);
+      }
+
+      reviewRows = data;
+    }
+
+    const menuChunks = await createKnowledgeChunkRows(
+      (menuRows ?? []).map((menu) => ({
+        userId: user.id,
+        storeId,
+        sourceKind: "menu" as const,
+        sourceRecordId: menu.id,
+        content: `메뉴: ${menu.name}${menu.price_text ? `\n가격: ${menu.price_text}` : ""}`,
+        metadata: {
+          name: menu.name,
+          priceText: menu.price_text,
+        },
+      })),
+    );
+
+    const reviewChunks = await createKnowledgeChunkRows(
+      (reviewRows ?? []).map((review) => ({
+        userId: user.id,
+        storeId,
+        sourceKind: "review" as const,
+        sourceRecordId: review.id,
+        content: [
+          review.author ? `작성자: ${review.author}` : null,
+          review.rating !== null ? `별점: ${review.rating}` : null,
+          review.review_date ? `작성일: ${review.review_date}` : null,
+          `리뷰: ${review.content}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        metadata: {
+          author: review.author,
+          rating: review.rating,
+          reviewDate: review.review_date,
+        },
+      })),
+    );
+
+    const knowledgeChunkRows = [...storeChunks, ...menuChunks, ...reviewChunks];
+
+    if (knowledgeChunkRows.length) {
+      const { error: chunkInsertError } = await supabase
+        .from("knowledge_chunks")
+        .insert(
+          knowledgeChunkRows.map((chunk) => ({
+            user_id: chunk.userId,
+            store_id: storeId,
+            source_kind: chunk.sourceKind,
+            source_record_id: chunk.sourceRecordId,
+            content: chunk.content,
+            metadata: chunk.metadata ?? {},
+            embedding: chunk.embedding,
+          })),
+        );
+
+      if (chunkInsertError) {
+        throw new Error(chunkInsertError.message);
       }
     }
 
@@ -134,6 +247,7 @@ export async function POST(request: Request) {
         storeId,
         savedMenus: result.place.menus.length,
         savedReviews: result.reviews.length,
+        savedChunks: knowledgeChunkRows.length,
       },
     });
   } catch (error) {
