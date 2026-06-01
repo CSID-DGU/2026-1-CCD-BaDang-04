@@ -141,12 +141,74 @@ function extractContent(text: string) {
   );
 }
 
+function isRemoteBrowserSession() {
+  return Boolean(
+    process.env.PLAYWRIGHT_WS_ENDPOINT ??
+      process.env.BROWSERLESS_WS_ENDPOINT ??
+      process.env.BROWSER_WS_ENDPOINT,
+  );
+}
+
+function isFastRemoteScrape() {
+  return isRemoteBrowserSession() && process.env.SCRAPE_DEPTH !== "full";
+}
+
+async function preparePage(page: Page) {
+  page.setDefaultTimeout(isRemoteBrowserSession() ? 5000 : 15000);
+  page.setDefaultNavigationTimeout(isRemoteBrowserSession() ? 15000 : 30000);
+
+  if (!isRemoteBrowserSession()) {
+    return;
+  }
+
+  await page.route("**/*", async (route) => {
+    const resourceType = route.request().resourceType();
+
+    if (["image", "font", "media"].includes(resourceType)) {
+      await route.abort();
+      return;
+    }
+
+    await route.continue();
+  });
+}
+
+async function safeWait(page: Page, timeout: number) {
+  if (page.isClosed()) {
+    return false;
+  }
+
+  try {
+    await page.waitForTimeout(timeout);
+    return !page.isClosed();
+  } catch {
+    return false;
+  }
+}
+
+async function safeClick(page: Page, locator: ReturnType<Page["locator"]>, timeout = 1500) {
+  if (page.isClosed()) {
+    return false;
+  }
+
+  try {
+    await locator.click({ timeout });
+    return !page.isClosed();
+  } catch {
+    return false;
+  }
+}
+
 async function clickFirstAvailable(page: Page, selectors: string[]) {
   for (const selector of selectors) {
+    if (page.isClosed()) {
+      return false;
+    }
+
     const trigger = page.locator(selector).first();
     if (await trigger.count()) {
-      await trigger.click({ timeout: 3000 }).catch(() => undefined);
-      await page.waitForTimeout(1000);
+      await safeClick(page, trigger, 3000);
+      await safeWait(page, 700);
       return true;
     }
   }
@@ -215,15 +277,24 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
 
   await page.goto(menuUrl, {
     waitUntil: "domcontentloaded",
-    timeout: 30000,
+    timeout: isRemoteBrowserSession() ? 15000 : 30000,
   });
-  await page.waitForTimeout(1200);
+  await safeWait(page, isFastRemoteScrape() ? 300 : 900);
 
   let previousMenuCount = 0;
+  const maxMenuScrolls = isFastRemoteScrape()
+    ? 3
+    : isRemoteBrowserSession()
+      ? 10
+      : 20;
 
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < maxMenuScrolls; index += 1) {
+    if (page.isClosed()) {
+      break;
+    }
+
     await scrollScrollableAreas(page);
-    await page.waitForTimeout(350);
+    await safeWait(page, isFastRemoteScrape() ? 120 : 250);
 
     const currentMenuCount = await page.evaluate(() => {
       return document.querySelectorAll(".section_product .info_goods").length;
@@ -247,17 +318,23 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
   for (const selector of expandSelectors) {
     const expandButtons = page.locator(selector);
     const count = await expandButtons.count();
+    const maxExpandClicks = isFastRemoteScrape()
+      ? Math.min(count, 3)
+      : isRemoteBrowserSession()
+        ? Math.min(count, 12)
+        : count;
 
-    for (let index = 0; index < count; index += 1) {
-      await expandButtons
-        .nth(index)
-        .click({ timeout: 1500 })
-        .catch(() => undefined);
-      await page.waitForTimeout(150);
+    for (let index = 0; index < maxExpandClicks; index += 1) {
+      if (page.isClosed()) {
+        break;
+      }
+
+      await safeClick(page, expandButtons.nth(index));
+      await safeWait(page, isFastRemoteScrape() ? 30 : 80);
     }
   }
 
-  await page.waitForTimeout(500);
+  await safeWait(page, isFastRemoteScrape() ? 100 : 300);
 
   return page.evaluate(() => {
     function cleanMenuNameInBrowser(text: string) {
@@ -328,10 +405,19 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
   ]);
 
   let previousReviewCount = 0;
+  const maxReviewScrolls = isFastRemoteScrape()
+    ? 4
+    : isRemoteBrowserSession()
+      ? 10
+      : 20;
 
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < maxReviewScrolls; index += 1) {
+    if (page.isClosed()) {
+      break;
+    }
+
     await scrollScrollableAreas(page);
-    await page.waitForTimeout(800);
+    await safeWait(page, isFastRemoteScrape() ? 180 : 450);
 
     const currentReviewCount = await page.evaluate(() => {
       return Array.from(document.querySelectorAll("li, div"))
@@ -360,17 +446,23 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
   for (const selector of expandSelectors) {
     const expandButtons = page.locator(selector);
     const count = await expandButtons.count();
+    const maxExpandClicks = isFastRemoteScrape()
+      ? Math.min(count, 8)
+      : isRemoteBrowserSession()
+        ? Math.min(count, 24)
+        : count;
 
-    for (let index = 0; index < count; index += 1) {
-      await expandButtons
-        .nth(index)
-        .click({ timeout: 1500 })
-        .catch(() => undefined);
-      await page.waitForTimeout(120);
+    for (let index = 0; index < maxExpandClicks; index += 1) {
+      if (page.isClosed()) {
+        break;
+      }
+
+      await safeClick(page, expandButtons.nth(index));
+      await safeWait(page, isFastRemoteScrape() ? 25 : 70);
     }
   }
 
-  await page.waitForTimeout(500);
+  await safeWait(page, isFastRemoteScrape() ? 100 : 300);
 
   const rawCards = await page.evaluate(() => {
     const cardSelectors = [
@@ -442,7 +534,9 @@ async function createBrowser(): Promise<Browser> {
     process.env.BROWSER_WS_ENDPOINT;
 
   if (configuredEndpoint) {
-    const remoteBrowserEndpoint = withBrowserlessTimeout(configuredEndpoint);
+    const remoteBrowserEndpoint = withBrowserlessTimeout(
+      normalizeBrowserEndpoint(configuredEndpoint),
+    );
 
     if (isPlaywrightNativeEndpoint(remoteBrowserEndpoint)) {
       return chromium.connect(remoteBrowserEndpoint);
@@ -461,6 +555,12 @@ async function createBrowser(): Promise<Browser> {
     headless: true,
     args: ["--disable-dev-shm-usage", "--no-sandbox"],
   });
+}
+
+function normalizeBrowserEndpoint(endpoint: string) {
+  return endpoint
+    .trim()
+    .replace(/^(PLAYWRIGHT_WS_ENDPOINT|BROWSERLESS_WS_ENDPOINT|BROWSER_WS_ENDPOINT)=/, "");
 }
 
 function isPlaywrightNativeEndpoint(endpoint: string) {
@@ -490,11 +590,12 @@ async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
 
   try {
     const page = await browser.newPage();
+    await preparePage(page);
     await page.goto(pageUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: isRemoteBrowserSession() ? 15000 : 30000,
     });
-    await page.waitForTimeout(1500);
+    await safeWait(page, isFastRemoteScrape() ? 400 : 1000);
 
     const parsedUrl = new URL(pageUrl);
     const placeId = getPlaceId(parsedUrl);
@@ -504,11 +605,17 @@ async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
 
     const baseInfo = await scrapePlaceInfo(page);
     const menus = await scrapeMenus(page, menuUrl);
+    if (page.isClosed()) {
+      throw new Error(
+        "원격 브라우저 세션이 메뉴 수집 중 종료되었습니다. Browserless timeout을 180000 이상으로 늘리거나 플랜 제한을 확인하세요.",
+      );
+    }
+
     await page.goto(pageUrl, {
       waitUntil: "domcontentloaded",
-      timeout: 30000,
+      timeout: isRemoteBrowserSession() ? 15000 : 30000,
     });
-    await page.waitForTimeout(1200);
+    await safeWait(page, isFastRemoteScrape() ? 300 : 800);
     const reviews = await scrapeReviews(page);
 
     return {
