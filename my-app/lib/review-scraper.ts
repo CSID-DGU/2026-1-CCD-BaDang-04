@@ -1,4 +1,4 @@
-import { chromium, type Page } from "playwright";
+import type { Page } from "playwright";
 
 export type ScrapedReview = {
   author: string | null;
@@ -435,6 +435,9 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
 }
 
 async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
+  process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
+  const { chromium } = await import("playwright");
+
   const browser = await chromium.launch({
     headless: true,
     args: ["--disable-dev-shm-usage", "--no-sandbox"],
