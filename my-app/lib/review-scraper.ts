@@ -235,27 +235,56 @@ async function scrollScrollableAreas(page: Page) {
 }
 
 async function scrapePlaceInfo(page: Page): Promise<Omit<ScrapedPlaceInfo, "menus">> {
-  return page.evaluate(() => {
+  const placeId = getPlaceId(new URL(page.url()));
+
+  return page.evaluate((currentPlaceId) => {
     const fullText = (document.body.textContent ?? "").replace(/\s+/g, " ").trim();
 
     const nameSelectors = [
+      "h1",
+      "h2",
+      '[class*="place_tit"]',
+      '[class*="tit_place"]',
+      '[class*="inner_place"] [class*="tit"]',
+      '[class*="placename"]',
+      '[class*="placeName"]',
       'h2[class*="tit"]',
       'h2[class*="title"]',
       'strong[class*="tit"]',
       'strong[class*="name"]',
+      'meta[property="og:title"]',
     ];
 
     let placeName: string | null = null;
     for (const selector of nameSelectors) {
-      const text = document.querySelector(selector)?.textContent?.trim();
+      const element = document.querySelector(selector);
+      const text =
+        selector.startsWith("meta")
+          ? element?.getAttribute("content")?.trim()
+          : element?.textContent?.trim();
+
       if (text && text.length > 1) {
-        placeName = text;
+        placeName = text
+          .replace(/\s*\|\s*카카오맵\s*$/, "")
+          .replace(/\s*-+\s*카카오맵\s*$/, "")
+          .trim();
         break;
       }
     }
 
+    if (!placeName && currentPlaceId) {
+      const canonicalHref =
+        document.querySelector<HTMLAnchorElement>(
+          `a[href*="place.map.kakao.com/${currentPlaceId}"]`,
+        )?.href ?? "";
+      const canonicalMatch = canonicalHref.match(/\/([^/?#]+)$/);
+      placeName = canonicalMatch ? decodeURIComponent(canonicalMatch[1]) : null;
+    }
+
     const ratingMatch =
       fullText.match(/평점\s*([0-5](?:\.\d)?)/) ??
+      fullText.match(/평점별점\s*([0-5](?:\.\d)?)/) ??
+      fullText.match(/별점평균\s*([0-5](?:\.\d)?)/) ??
       fullText.match(/별점\s*([0-5](?:\.\d)?)/);
 
     const averageRating = ratingMatch ? Number(ratingMatch[1]) : null;
@@ -267,7 +296,7 @@ async function scrapePlaceInfo(page: Page): Promise<Omit<ScrapedPlaceInfo, "menu
           ? averageRating
           : null,
     };
-  });
+  }, placeId);
 }
 
 async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedMenu[]> {
@@ -621,6 +650,11 @@ async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
       reviews = [];
     }
 
+    const reviewPageInfo =
+      baseInfo.placeName && baseInfo.averageRating !== null
+        ? baseInfo
+        : await scrapePlaceInfo(page).catch(() => baseInfo);
+
     if (!page.isClosed()) {
       try {
         menus = await scrapeMenus(page, menuUrl);
@@ -629,9 +663,16 @@ async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
       }
     }
 
+    const menuPageInfo =
+      reviewPageInfo.placeName && reviewPageInfo.averageRating !== null
+        ? reviewPageInfo
+        : !page.isClosed()
+          ? await scrapePlaceInfo(page).catch(() => reviewPageInfo)
+          : reviewPageInfo;
+
     return {
       source: pageUrl,
-      place: { ...baseInfo, menus },
+      place: { ...menuPageInfo, menus },
       reviews,
       note: "가게 기본 정보, 메뉴, 리뷰를 Playwright로 수집하는 실험 기능입니다.",
     };
