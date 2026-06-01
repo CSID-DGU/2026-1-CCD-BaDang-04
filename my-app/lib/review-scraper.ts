@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { Browser, Page } from "playwright";
 
 export type ScrapedReview = {
   author: string | null;
@@ -434,14 +434,31 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
     .filter((review): review is ScrapedReview => Boolean(review));
 }
 
-async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
-  process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
+async function createBrowser(): Promise<Browser> {
   const { chromium } = await import("playwright");
+  const remoteBrowserEndpoint =
+    process.env.PLAYWRIGHT_WS_ENDPOINT ??
+    process.env.BROWSERLESS_WS_ENDPOINT ??
+    process.env.BROWSER_WS_ENDPOINT;
 
-  const browser = await chromium.launch({
+  if (remoteBrowserEndpoint) {
+    return chromium.connectOverCDP(remoteBrowserEndpoint);
+  }
+
+  if (process.env.VERCEL) {
+    throw new Error(
+      "Vercel 서버리스 함수에는 Chromium을 포함할 수 없습니다. PLAYWRIGHT_WS_ENDPOINT 또는 BROWSERLESS_WS_ENDPOINT에 원격 브라우저 WebSocket URL을 설정하세요.",
+    );
+  }
+
+  return chromium.launch({
     headless: true,
     args: ["--disable-dev-shm-usage", "--no-sandbox"],
   });
+}
+
+async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
+  const browser = await createBrowser();
 
   try {
     const page = await browser.newPage();
