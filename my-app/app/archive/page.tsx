@@ -13,11 +13,12 @@ type NewsletterRow = {
 };
 
 export default async function ArchivePage() {
-  const { supabase } = await requireUser();
+  const { supabase, user } = await requireUser();
 
   const { data: store, error: storeError } = await supabase
     .from("stores")
     .select("place_name")
+    .eq("user_id", user.id)
     .limit(1)
     .maybeSingle();
 
@@ -26,6 +27,7 @@ export default async function ArchivePage() {
     .select(
       "id, analysis_period_start, analysis_period_end, generated_text, created_at",
     )
+    .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
   if (error) {

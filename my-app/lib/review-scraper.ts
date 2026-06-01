@@ -659,7 +659,12 @@ export async function scrapeReviewsFromPlace(rawUrl: string): Promise<ScrapeResu
 
   const result = await scrapePlaceData(parsedUrl.toString());
 
-  if (!result.reviews.length && !result.place.menus.length) {
+  if (
+    !result.place.placeName &&
+    !result.place.averageRating &&
+    !result.reviews.length &&
+    !result.place.menus.length
+  ) {
     throw new Error(
       "가게 정보를 찾지 못했습니다. 페이지 구조가 바뀌었거나 접근이 제한되었을 수 있습니다.",
     );
