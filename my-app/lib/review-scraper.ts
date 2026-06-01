@@ -436,12 +436,18 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
 
 async function createBrowser(): Promise<Browser> {
   const { chromium } = await import("playwright");
-  const remoteBrowserEndpoint =
+  const configuredEndpoint =
     process.env.PLAYWRIGHT_WS_ENDPOINT ??
     process.env.BROWSERLESS_WS_ENDPOINT ??
     process.env.BROWSER_WS_ENDPOINT;
 
-  if (remoteBrowserEndpoint) {
+  if (configuredEndpoint) {
+    const remoteBrowserEndpoint = withBrowserlessTimeout(configuredEndpoint);
+
+    if (isPlaywrightNativeEndpoint(remoteBrowserEndpoint)) {
+      return chromium.connect(remoteBrowserEndpoint);
+    }
+
     return chromium.connectOverCDP(remoteBrowserEndpoint);
   }
 
@@ -455,6 +461,28 @@ async function createBrowser(): Promise<Browser> {
     headless: true,
     args: ["--disable-dev-shm-usage", "--no-sandbox"],
   });
+}
+
+function isPlaywrightNativeEndpoint(endpoint: string) {
+  try {
+    return new URL(endpoint).pathname.endsWith("/playwright");
+  } catch {
+    return false;
+  }
+}
+
+function withBrowserlessTimeout(endpoint: string) {
+  try {
+    const url = new URL(endpoint);
+
+    if (url.hostname.includes("browserless.io") && !url.searchParams.has("timeout")) {
+      url.searchParams.set("timeout", "120000");
+    }
+
+    return url.toString();
+  } catch {
+    return endpoint;
+  }
 }
 
 async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
