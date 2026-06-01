@@ -283,7 +283,7 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
 
   let previousMenuCount = 0;
   const maxMenuScrolls = isFastRemoteScrape()
-    ? 3
+    ? 5
     : isRemoteBrowserSession()
       ? 10
       : 20;
@@ -319,7 +319,7 @@ async function scrapeMenus(page: Page, menuUrl: string | null): Promise<ScrapedM
     const expandButtons = page.locator(selector);
     const count = await expandButtons.count();
     const maxExpandClicks = isFastRemoteScrape()
-      ? Math.min(count, 3)
+      ? Math.min(count, 6)
       : isRemoteBrowserSession()
         ? Math.min(count, 12)
         : count;
@@ -406,7 +406,7 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
 
   let previousReviewCount = 0;
   const maxReviewScrolls = isFastRemoteScrape()
-    ? 4
+    ? 8
     : isRemoteBrowserSession()
       ? 10
       : 20;
@@ -447,7 +447,7 @@ async function scrapeReviews(page: Page): Promise<ScrapedReview[]> {
     const expandButtons = page.locator(selector);
     const count = await expandButtons.count();
     const maxExpandClicks = isFastRemoteScrape()
-      ? Math.min(count, 8)
+      ? Math.min(count, 16)
       : isRemoteBrowserSession()
         ? Math.min(count, 24)
         : count;
@@ -602,21 +602,32 @@ async function scrapePlaceData(pageUrl: string): Promise<ScrapeResult> {
     const menuUrl = placeId
       ? `https://place.map.kakao.com/${placeId}#menuInfo`
       : null;
+    const reviewUrl = placeId
+      ? `https://place.map.kakao.com/${placeId}#review`
+      : pageUrl;
 
     const baseInfo = await scrapePlaceInfo(page);
-    const menus = await scrapeMenus(page, menuUrl);
-    if (page.isClosed()) {
-      throw new Error(
-        "원격 브라우저 세션이 메뉴 수집 중 종료되었습니다. Browserless timeout을 180000 이상으로 늘리거나 플랜 제한을 확인하세요.",
-      );
+    let reviews: ScrapedReview[] = [];
+    let menus: ScrapedMenu[] = [];
+
+    try {
+      await page.goto(reviewUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: isRemoteBrowserSession() ? 15000 : 30000,
+      });
+      await safeWait(page, isFastRemoteScrape() ? 300 : 800);
+      reviews = await scrapeReviews(page);
+    } catch {
+      reviews = [];
     }
 
-    await page.goto(pageUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: isRemoteBrowserSession() ? 15000 : 30000,
-    });
-    await safeWait(page, isFastRemoteScrape() ? 300 : 800);
-    const reviews = await scrapeReviews(page);
+    if (!page.isClosed()) {
+      try {
+        menus = await scrapeMenus(page, menuUrl);
+      } catch {
+        menus = [];
+      }
+    }
 
     return {
       source: pageUrl,
