@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createEmbeddingVector } from "@/lib/embeddings";
 import { getKnowledgeGraphContext } from "@/lib/knowledge-graph";
+import { createStructuredResponse } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -25,20 +26,6 @@ const periodOptions = [
   { key: "90d", label: "최근 90일", days: 90 },
   { key: "all", label: "전체", days: null },
 ] as const;
-
-function getAnalysisModel() {
-  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
-}
-
-function getOpenAiApiKey() {
-  const apiKey = process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not configured.");
-  }
-
-  return apiKey;
-}
 
 function getPeriodLabel(periodKey: string) {
   return periodOptions.find((option) => option.key === periodKey)?.label ?? "전체";
@@ -140,23 +127,11 @@ async function generateDashboardResponse(input: {
   issuesContext: string;
   graphContext: string;
 }) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getOpenAiApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: getAnalysisModel(),
-      messages: [
-        {
-          role: "system",
-          content:
-            "너는 소상공인 리뷰 분석을 수행하는 분석가다. 반드시 한국어 JSON만 반환하고, 과장 없이 주어진 근거에 기반해 간결하게 정리한다.",
-        },
-        {
-          role: "user",
-          content: [
+  return createStructuredResponse<DashboardResponse>({
+    schemaName: "dashboard_analysis",
+    system:
+      "너는 40~60대 중장년 시니어 자영업자 사장님을 위한 소상공인 리뷰 분석가다. 반드시 한국어 JSON만 반환하고, 과장 없이 주어진 근거에 기반해 간결하게 정리한다. 분석의 1차 기준은 실제 고객 반응이며, Kano 모델, SERVPERF, Grönroos 서비스 품질 모델은 놓친 관점을 점검하는 내부 보조 체크리스트로만 사용한다. 최종 출력에는 모델명이나 이론 용어를 직접 언급하지 않는다. 말투는 친근하지만 가볍지 않게, 쉬운 단어와 짧은 문장으로 쓴다.",
+    user: [
             `${input.placeName}의 ${input.periodLabel} 리뷰 분석을 작성한다.`,
             `검토 대상 리뷰 수: ${input.reviewCount}`,
             "",
@@ -169,8 +144,8 @@ async function generateDashboardResponse(input: {
             "[문제 및 개선안 관련 컨텍스트]",
             input.issuesContext || "- 관련 컨텍스트 없음",
             "",
-            "[Graph RAG 컨텍스트]",
-            input.graphContext || "- 그래프 컨텍스트 없음",
+            "[반복 고객 반응 요약]",
+            input.graphContext || "- 반복 고객 반응 요약 없음",
             "",
             "다음 JSON 스키마로만 응답한다.",
             `{
@@ -178,16 +153,23 @@ async function generateDashboardResponse(input: {
   "weaknesses": [{"title": "string", "detail": "string"}],
   "issues": [{"title": "string", "problem": "string", "recommendation": "string"}]
 }`,
-            "Graph RAG 컨텍스트는 반복 연결된 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거다. strengths와 weaknesses는 각각 최대 3개, issues는 최대 3개만 반환한다.",
+            [
+              "반복 고객 반응 요약은 자주 함께 나타난 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거다.",
+              "Kano 모델은 기본 기대, 만족 강화, 매력 요소, 불만 요소를 놓치지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "SERVPERF는 신뢰성, 응답성, 확신성, 공감성, 유형성 관점을 빠뜨리지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "Grönroos 모델은 결과 품질, 과정 품질, 이미지 품질 관점을 빠뜨리지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "세 서비스 품질 모델의 항목을 억지로 모두 채우지 말고, 실제 리뷰와 메뉴 근거가 있는 내용만 반영한다.",
+              "최종 JSON에는 Kano, SERVPERF, Grönroos 같은 이론명이나 신뢰성, 응답성, 유형성 같은 이론 용어를 쓰지 않는다.",
+              "최종 JSON에는 Graph RAG, 그래프, 노드, 엣지, 컨텍스트 같은 내부 기술 용어를 쓰지 않는다.",
+              "40~60대 자영업자가 바로 이해할 수 있도록 전문 용어, 플랫폼 업계 은어, 과한 영어 표현을 피한다.",
+              "문장은 길게 늘이지 말고, 한 문장에 한 가지 뜻만 담는다.",
+              "문제와 개선안은 비난하거나 훈계하는 말투가 아니라 옆에서 조언해주는 말투로 쓴다.",
+              "개선안은 돈과 시간이 많이 드는 큰 전략보다 오늘 또는 이번 주에 해볼 수 있는 작은 행동으로 쓴다.",
+              "'데이터 기반', '퍼널', '세그먼트', '인사이트' 같은 표현은 되도록 쉬운 말로 풀어쓴다.",
+              "strengths와 weaknesses는 각각 최대 3개, issues는 최대 3개만 반환한다.",
+            ].join(" "),
           ].join("\n"),
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "dashboard_analysis",
-          strict: true,
-          schema: {
+    schema: {
             type: "object",
             additionalProperties: false,
             properties: {
@@ -231,30 +213,7 @@ async function generateDashboardResponse(input: {
             },
             required: ["strengths", "weaknesses", "issues"],
           },
-        },
-      },
-    }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Dashboard analysis failed: ${await response.text()}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const content = payload.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("Dashboard analysis response was empty.");
-  }
-
-  return JSON.parse(content) as DashboardResponse;
 }
 
 export async function POST(request: Request) {

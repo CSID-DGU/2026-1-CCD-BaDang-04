@@ -293,11 +293,11 @@ export function formatGraphContext(input: {
     });
 
   return [
-    "[그래프 노드]",
-    nodeLines.length ? nodeLines.join("\n") : "- 그래프 노드 없음",
+    "[반복 근거 항목]",
+    nodeLines.length ? nodeLines.join("\n") : "- 반복 근거 항목 없음",
     "",
-    "[그래프 관계]",
-    edgeLines.length ? edgeLines.join("\n") : "- 그래프 관계 없음",
+    "[반복 연결 근거]",
+    edgeLines.length ? edgeLines.join("\n") : "- 반복 연결 근거 없음",
   ].join("\n");
 }
 

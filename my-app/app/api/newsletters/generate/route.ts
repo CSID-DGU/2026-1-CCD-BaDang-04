@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createEmbeddingVector } from "@/lib/embeddings";
 import { formatFullDate } from "@/lib/date-format";
 import { getKnowledgeGraphContext } from "@/lib/knowledge-graph";
-import { getAnalysisModel, getOpenAiApiKey } from "@/lib/openai";
+import { createStructuredResponse } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -101,23 +101,11 @@ async function generateNewsletter(input: {
   graphContext: string;
   keywordEvidenceCount: number;
 }) {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getOpenAiApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: getAnalysisModel(),
-      messages: [
-        {
-          role: "system",
-          content:
-            "너는 소상공인 사장님에게 쉬운 말로 마케팅 힌트를 전하는 뉴스레터 에디터다. 반드시 한국어 JSON만 반환한다. 리뷰와 메뉴 데이터는 사실 근거로 쓰고, 사용자가 준 키워드는 마케팅 주제로 해석한다. 키워드가 리뷰에 직접 나오지 않아도 일반적인 마케팅 지식을 활용해 가게 상황과 연결할 수 있다. 다만 리뷰에 없는 내용을 손님이 실제로 말했다고 쓰면 안 된다.",
-        },
-        {
-          role: "user",
-          content: [
+  return createStructuredResponse<NewsletterPayload>({
+    schemaName: "newsletter_generation",
+    system:
+      "너는 40~60대 중장년 시니어 자영업자 사장님에게 쉬운 말로 마케팅 힌트를 전하는 뉴스레터 에디터다. 반드시 한국어 JSON만 반환한다. 리뷰와 메뉴 데이터는 사실 근거로 쓰고, 사용자가 준 키워드는 마케팅 주제로 해석한다. 키워드가 리뷰에 직접 나오지 않아도 일반적인 마케팅 지식을 활용해 가게 상황과 연결할 수 있다. 다만 리뷰에 없는 내용을 손님이 실제로 말했다고 쓰면 안 된다. 분석의 1차 기준은 실제 고객 반응이며, Kano 모델, SERVPERF, Grönroos 서비스 품질 모델은 놓친 관점을 점검하는 내부 보조 체크리스트로만 사용한다. 최종 출력에는 모델명이나 이론 용어를 직접 언급하지 않는다. 말투는 친근하지만 가볍지 않게, 쉬운 단어와 짧은 문장으로 쓴다.",
+    user: [
             `${input.placeName}의 ${input.periodLabel} 데이터로 AI 뉴스레터를 만든다.`,
             `핵심 키워드: ${input.keyword}`,
             `검토 대상 리뷰 수: ${input.reviewCount}`,
@@ -126,8 +114,8 @@ async function generateNewsletter(input: {
             "[키워드 직접 관련 컨텍스트]",
             input.keywordContext || "- 키워드 직접 일치 컨텍스트 없음",
             "",
-            "[Graph RAG 컨텍스트]",
-            input.graphContext || "- 그래프 컨텍스트 없음",
+            "[반복 고객 반응 요약]",
+            input.graphContext || "- 반복 고객 반응 요약 없음",
             "",
             "[RAG 컨텍스트]",
             input.context || "- 관련 컨텍스트 없음",
@@ -135,12 +123,19 @@ async function generateNewsletter(input: {
             "[작성 원칙]",
             [
               "리뷰/메뉴 컨텍스트에 있는 내용은 실제 가게 상황으로 써도 된다.",
-              "Graph RAG 컨텍스트는 반복적으로 연결된 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거로 사용한다.",
+              "반복 고객 반응 요약은 자주 함께 나타난 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거로 사용한다.",
+              "Kano 모델은 기본 기대, 만족 강화, 매력 요소, 불만 요소를 놓치지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "SERVPERF는 신뢰성, 응답성, 확신성, 공감성, 유형성 관점을 빠뜨리지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "Grönroos 모델은 결과 품질, 과정 품질, 이미지 품질 관점을 빠뜨리지 않았는지 확인하는 내부 체크리스트로만 참고한다.",
+              "세 서비스 품질 모델의 항목을 억지로 모두 채우지 말고, 실제 리뷰와 메뉴 근거가 있는 내용만 반영한다.",
               "키워드 직접 근거 수가 0이면, 그 키워드가 리뷰에 직접 나온 것처럼 쓰지 않는다.",
               "키워드 직접 근거가 부족할 때는 '리뷰에 직접 많이 나온 이야기는 아니지만', '가게 상황을 보면 이렇게 연결해볼 수 있습니다'처럼 구분해서 쓴다.",
               "모델의 일반 마케팅 지식은 아이디어와 제안에만 사용한다.",
               "손님 반응, 평판, 메뉴 언급은 반드시 컨텍스트에 근거가 있을 때만 단정한다.",
               "키워드는 제목, 본문, 제안 중 최소 2곳에서 자연스럽게 드러나야 한다.",
+              "최종 문장에는 Graph RAG, 그래프, 노드, 엣지, 컨텍스트 같은 내부 기술 용어를 쓰지 않는다.",
+              "40~60대 자영업자가 바로 이해하고 실행할 수 있도록 전문 용어, 플랫폼 업계 은어, 과한 영어 표현을 피한다.",
+              "제안은 돈과 시간이 많이 드는 큰 전략보다 오늘 또는 이번 주에 해볼 수 있는 작은 행동으로 쓴다.",
             ].join(" "),
             "",
             "다음 JSON 스키마로만 응답한다.",
@@ -155,7 +150,12 @@ async function generateNewsletter(input: {
               "이 결과물은 보고서가 아니라 소상공인 사장님이 읽는 친근한 뉴스레터다.",
               "문장형 단락으로 써야 하고, 불릿 목록처럼 쓰지 않는다.",
               "너무 딱딱한 표현, 컨설팅 보고서 말투, 과장된 마케팅 문구는 피한다.",
-              "50대 이상 자영업자도 바로 이해할 수 있게 쉬운 한국어로 쓴다.",
+              "Kano, SERVPERF, Grönroos 같은 이론명이나 신뢰성, 응답성, 유형성 같은 이론 용어를 최종 문장에 쓰지 않는다.",
+              "Graph RAG, 그래프, 노드, 엣지, 컨텍스트 같은 내부 기술 용어도 최종 문장에 쓰지 않는다.",
+              "40~60대 중장년 시니어 자영업자도 바로 이해할 수 있게 쉬운 한국어로 쓴다.",
+              "문장은 길게 늘이지 말고, 한 문장에 한 가지 뜻만 담는다.",
+              "비난하거나 훈계하는 말투가 아니라 옆에서 조언해주는 말투로 쓴다.",
+              "'데이터 기반', '퍼널', '세그먼트', '인사이트' 같은 표현은 되도록 쉬운 말로 풀어쓴다.",
               "headline은 제목 한 줄이다.",
               "lead는 인사말 없이 바로 핵심 상황을 2~3문장으로 설명한다.",
               "body는 키워드를 중심으로 고객 반응, 메뉴, 운영 포인트를 자연스러운 줄글 1~2단락으로 풀어쓴다.",
@@ -164,14 +164,7 @@ async function generateNewsletter(input: {
               "반드시 입력된 키워드가 본문에서 자연스럽게 드러나야 한다.",
             ].join(" "),
           ].join("\n"),
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "newsletter_generation",
-          strict: true,
-          schema: {
+    schema: {
             type: "object",
             additionalProperties: false,
             properties: {
@@ -183,30 +176,7 @@ async function generateNewsletter(input: {
             },
             required: ["headline", "lead", "body", "suggestion", "closing"],
           },
-        },
-      },
-    }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Newsletter generation failed: ${await response.text()}`);
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string;
-      };
-    }>;
-  };
-
-  const content = payload.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("Newsletter generation response was empty.");
-  }
-
-  return JSON.parse(content) as NewsletterPayload;
 }
 
 export async function POST(request: Request) {
