@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createEmbeddingVector } from "@/lib/embeddings";
 import { formatFullDate } from "@/lib/date-format";
+import { getKnowledgeGraphContext } from "@/lib/knowledge-graph";
 import { getAnalysisModel, getOpenAiApiKey } from "@/lib/openai";
 import { createClient } from "@/lib/supabase/server";
 
@@ -97,6 +98,7 @@ async function generateNewsletter(input: {
   reviewCount: number;
   context: string;
   keywordContext: string;
+  graphContext: string;
   keywordEvidenceCount: number;
 }) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -124,12 +126,16 @@ async function generateNewsletter(input: {
             "[키워드 직접 관련 컨텍스트]",
             input.keywordContext || "- 키워드 직접 일치 컨텍스트 없음",
             "",
+            "[Graph RAG 컨텍스트]",
+            input.graphContext || "- 그래프 컨텍스트 없음",
+            "",
             "[RAG 컨텍스트]",
             input.context || "- 관련 컨텍스트 없음",
             "",
             "[작성 원칙]",
             [
               "리뷰/메뉴 컨텍스트에 있는 내용은 실제 가게 상황으로 써도 된다.",
+              "Graph RAG 컨텍스트는 반복적으로 연결된 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거로 사용한다.",
               "키워드 직접 근거 수가 0이면, 그 키워드가 리뷰에 직접 나온 것처럼 쓰지 않는다.",
               "키워드 직접 근거가 부족할 때는 '리뷰에 직접 많이 나온 이야기는 아니지만', '가게 상황을 보면 이렇게 연결해볼 수 있습니다'처럼 구분해서 쓴다.",
               "모델의 일반 마케팅 지식은 아이디어와 제안에만 사용한다.",
@@ -352,6 +358,11 @@ export async function POST(request: Request) {
         ).slice(0, 18),
       ),
       keywordContext: stringifyContext(keywordMatchedChunks.slice(0, 10)),
+      graphContext: await getKnowledgeGraphContext({
+        supabase,
+        userId: user.id,
+        storeId: store.id,
+      }),
       keywordEvidenceCount: keywordMatchedChunks.length,
     });
 

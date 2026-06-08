@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createEmbeddingVector } from "@/lib/embeddings";
+import { getKnowledgeGraphContext } from "@/lib/knowledge-graph";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -26,7 +27,7 @@ const periodOptions = [
 ] as const;
 
 function getAnalysisModel() {
-  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4o-mini";
+  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
 }
 
 function getOpenAiApiKey() {
@@ -137,6 +138,7 @@ async function generateDashboardResponse(input: {
   strengthsContext: string;
   weaknessesContext: string;
   issuesContext: string;
+  graphContext: string;
 }) {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -167,13 +169,16 @@ async function generateDashboardResponse(input: {
             "[문제 및 개선안 관련 컨텍스트]",
             input.issuesContext || "- 관련 컨텍스트 없음",
             "",
+            "[Graph RAG 컨텍스트]",
+            input.graphContext || "- 그래프 컨텍스트 없음",
+            "",
             "다음 JSON 스키마로만 응답한다.",
             `{
   "strengths": [{"title": "string", "detail": "string"}],
   "weaknesses": [{"title": "string", "detail": "string"}],
   "issues": [{"title": "string", "problem": "string", "recommendation": "string"}]
 }`,
-            "strengths와 weaknesses는 각각 최대 3개, issues는 최대 3개만 반환한다.",
+            "Graph RAG 컨텍스트는 반복 연결된 메뉴, 강점, 약점, 이슈, 고객군을 파악하는 보조 근거다. strengths와 weaknesses는 각각 최대 3개, issues는 최대 3개만 반환한다.",
           ].join("\n"),
         },
       ],
@@ -323,6 +328,11 @@ export async function POST(request: Request) {
       strengthsContext: toBulletList(retrieved.strengths.slice(0, 10)),
       weaknessesContext: toBulletList(retrieved.weaknesses.slice(0, 10)),
       issuesContext: toBulletList(retrieved.issues.slice(0, 10)),
+      graphContext: await getKnowledgeGraphContext({
+        supabase,
+        userId: user.id,
+        storeId: store.id,
+      }),
     });
 
     return NextResponse.json(dashboard);

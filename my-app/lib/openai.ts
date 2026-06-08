@@ -9,6 +9,5 @@ export function getOpenAiApiKey() {
 }
 
 export function getAnalysisModel() {
-  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4o-mini";
+  return process.env.OPENAI_ANALYSIS_MODEL ?? "gpt-4.1";
 }
-

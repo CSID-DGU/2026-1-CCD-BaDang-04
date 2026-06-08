@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createKnowledgeChunkRows } from "@/lib/embeddings";
+import { buildKnowledgeGraph } from "@/lib/knowledge-graph";
 import { createClient } from "@/lib/supabase/server";
 import { scrapeReviewsFromPlace } from "@/lib/review-scraper";
 
@@ -16,6 +17,10 @@ function toIsoDate(value: string | null) {
   }
 
   return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function normalizeGraphLabel(label: string) {
+  return label.replace(/\s+/g, "").toLowerCase();
 }
 
 export async function POST(request: Request) {
@@ -241,6 +246,101 @@ export async function POST(request: Request) {
       }
     }
 
+    let savedGraphNodes = 0;
+    let savedGraphEdges = 0;
+
+    try {
+      const graph = buildKnowledgeGraph({
+        placeName: result.place.placeName,
+        menus: (menuRows ?? []).map((menu) => ({
+          id: menu.id,
+          name: menu.name,
+          price_text: menu.price_text,
+        })),
+        reviews: (reviewRows ?? []).map((review) => ({
+          id: review.id,
+          rating: review.rating,
+          content: review.content,
+        })),
+      });
+
+      if (graph.nodes.length) {
+        const { data: graphNodes, error: graphNodeError } = await supabase
+          .from("knowledge_nodes")
+          .upsert(
+            graph.nodes.map((node) => ({
+              user_id: user.id,
+              store_id: storeId,
+              node_type: node.nodeType,
+              label: node.label,
+              normalized_label: normalizeGraphLabel(node.label),
+              weight: node.weight,
+              metadata: node.metadata ?? {},
+            })),
+            {
+              onConflict: "user_id,store_id,node_type,normalized_label",
+            },
+          )
+          .select("id, node_type, label");
+
+        if (graphNodeError) {
+          throw new Error(graphNodeError.message);
+        }
+
+        savedGraphNodes = graphNodes?.length ?? 0;
+        const nodeIdMap = new Map(
+          (graphNodes ?? []).map((node) => [
+            `${node.node_type}:${normalizeGraphLabel(node.label)}`,
+            node.id,
+          ]),
+        );
+
+        const edgeRows = graph.edges
+          .map((edge) => {
+            const sourceNodeId = nodeIdMap.get(
+              `${edge.source.nodeType}:${normalizeGraphLabel(edge.source.label)}`,
+            );
+            const targetNodeId = nodeIdMap.get(
+              `${edge.target.nodeType}:${normalizeGraphLabel(edge.target.label)}`,
+            );
+
+            if (!sourceNodeId || !targetNodeId) {
+              return null;
+            }
+
+            return {
+              user_id: user.id,
+              store_id: storeId,
+              source_node_id: sourceNodeId,
+              target_node_id: targetNodeId,
+              relation_type: edge.relationType,
+              weight: edge.weight,
+              metadata: edge.metadata ?? {},
+            };
+          })
+          .filter((edge): edge is NonNullable<typeof edge> => Boolean(edge));
+
+        if (edgeRows.length) {
+          const { data: graphEdges, error: graphEdgeError } = await supabase
+            .from("knowledge_edges")
+            .upsert(edgeRows, {
+              onConflict:
+                "store_id,source_node_id,target_node_id,relation_type",
+            })
+            .select("id");
+
+          if (graphEdgeError) {
+            throw new Error(graphEdgeError.message);
+          }
+
+          savedGraphEdges = graphEdges?.length ?? 0;
+        }
+      }
+    } catch {
+      savedGraphNodes = 0;
+      savedGraphEdges = 0;
+    }
+
     return NextResponse.json({
       ...result,
       storage: {
@@ -248,6 +348,8 @@ export async function POST(request: Request) {
         savedMenus: result.place.menus.length,
         savedReviews: result.reviews.length,
         savedChunks: knowledgeChunkRows.length,
+        savedGraphNodes,
+        savedGraphEdges,
       },
     });
   } catch (error) {
